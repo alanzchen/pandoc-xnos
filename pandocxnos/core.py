@@ -766,55 +766,57 @@ def _process_refs(x, pattern, labels):
     until all matching Cite elements in `x` are processed."""
 
     # Scan the element list x for Cite elements with known labels
-    for i, v in enumerate(x):
-        if v['t'] == 'Cite' and len(v['c']) == 2:
+    try:
+        for i, v in enumerate(x):
+            if v['t'] == 'Cite' and len(v['c']) == 2:
+                label = v['c'][-2][0]['citationId']
+                if not label in labels and ':' in label:
+                    testlabel = label.split(':')[-1]
+                    if testlabel in labels:
+                        label = testlabel
 
-            label = v['c'][-2][0]['citationId']
-            if not label in labels and ':' in label:
-                testlabel = label.split(':')[-1]
-                if testlabel in labels:
-                    label = testlabel
+                if (pattern and pattern.match(label)) or label in labels:
 
-            if (pattern and pattern.match(label)) or label in labels:
+                    # A new reference was found; create some empty attrs for it
+                    attrs = PandocAttributes()
 
-                # A new reference was found; create some empty attrs for it
-                attrs = PandocAttributes()
+                    # Extract the modifiers.  'attrs' is updated in place.
+                    # Element deletion could change the index of the Cite being
+                    # processed.
+                    i = _extract_modifier(x, i, attrs)
 
-                # Extract the modifiers.  'attrs' is updated in place.
-                # Element deletion could change the index of the Cite being
-                # processed.
-                i = _extract_modifier(x, i, attrs)
+                    # Remove surrounding brackets
+                    i = _remove_brackets(x, i)
 
-                # Remove surrounding brackets
-                i = _remove_brackets(x, i)
+                    # Get the reference attributes.  Attributes must immediately
+                    # follow the label.
+                    if not v['c'][0][0]['citationSuffix'] and \
+                      not stringify(v['c'][-1]).endswith(']'):
+                        try:
+                            a = extract_attrs(x, i+1)
+                            attrs.id = a.id
+                            attrs.classes.extend(a.classes)
+                            attrs.kvs.update(a.kvs)
+                        except (ValueError, IndexError):
+                            pass  # None given
 
-                # Get the reference attributes.  Attributes must immediately
-                # follow the label.
-                if not v['c'][0][0]['citationSuffix'] and \
-                  not stringify(v['c'][-1]).endswith(']'):
-                    try:
-                        a = extract_attrs(x, i+1)
-                        attrs.id = a.id
-                        attrs.classes.extend(a.classes)
-                        attrs.kvs.update(a.kvs)
-                    except (ValueError, IndexError):
-                        pass  # None given
+                    # Attach the attributes
+                    v['c'].insert(0, attrs.list)
 
-                # Attach the attributes
-                v['c'].insert(0, attrs.list)
+                    # The element list may be changed
+                    if label in labels:
+                        return None  # Forces processing to repeat via @_repeat
 
-                # The element list may be changed
-                if label in labels:
-                    return None  # Forces processing to repeat via @_repeat
-
-            if _WARNINGLEVEL and pattern and \
-              pattern.match(label) and label not in badlabels:
-                badlabels.append(label)
-                msg = "\n%s: Bad reference: @%s.\n" % (_FILTERNAME, label)
-                STDERR.write(msg)
-                STDERR.flush()
-
+                if _WARNINGLEVEL and pattern and \
+                  pattern.match(label) and label not in badlabels:
+                    badlabels.append(label)
+                    msg = "\n%s: Bad reference: @%s.\n" % (_FILTERNAME, label)
+                    STDERR.write(msg)
+                    STDERR.flush()
+    except:
+        pass
     return True  # Terminates processing in _repeat decorator
+
 
 @_compat
 def process_refs_factory(regex, labels, warninglevel=None):
